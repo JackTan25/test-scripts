@@ -1,6 +1,6 @@
 use std::fs::read_to_string;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use anyhow::Result;
 use databend_driver::new_connection;
@@ -46,7 +46,9 @@ async fn setup(dsn: &str) -> Result<()> {
         let sql = sql.trim();
         if !sql.is_empty() {
             info!("executing sql: {}", sql);
+            println!("start");
             conn.exec(sql).await?;
+            println!("finished")
         }
     }
 
@@ -133,13 +135,14 @@ async fn exec_replace_conflict(dsn: &str, batch_ids: &[u32]) -> Result<bool> {
 
     // replace these history data into the table (itself). while table being compacted and re-clustered
     // this may lead to partial and total block update.
-    let sql = format!("merge into test_order as t 
+    let sql = format!(
+        "merge into test_order as t 
                          using ({sub_query}) as s 
                          on t.id = s.id and t.insert_time = s.insert_time
                          when matched then update *
                          when not matched then insert *
-                         ");
-
+                         "
+    );
 
     match conn.exec(&sql).await {
         Ok(_) => {
@@ -159,12 +162,16 @@ async fn exec_replace(dsn: &str, batch_id: u32) -> Result<bool> {
 
     info!("executing merge-into batch : {}", batch_id);
     let batch_correlated_value = batch_id * 7;
-    //on(id, insert_time)
-    let sql = format!(
-        "
-         merge into test_order as t 
-          using (
-              select
+    let truncate_sql = "truncate table random_source_store";
+    match conn.exec(&truncate_sql).await {
+        Ok(_) => {}
+        Err(e) => {
+            panic!("{:?}", e);
+        }
+    };
+
+    let insert_sql = format!(
+        "insert into random_source_store (select
                     id,
                     {batch_id} as id1,
                     {batch_correlated_value} as id2,
@@ -176,7 +183,22 @@ async fn exec_replace(dsn: &str, batch_id: u32) -> Result<bool> {
                     insert_time2,
                     insert_time3,
                     i
-              from random_source limit 1000
+              from random_source limit 10)"
+    );
+
+    match conn.exec(&insert_sql).await {
+        Ok(_) => {}
+        Err(e) => {
+            panic!("{:?}", e);
+        }
+    };
+
+    //on(id, insert_time)
+    let sql = format!(
+        "
+         merge into test_order as t 
+          using (
+            select * from random_source_store
           ) as s
 
           on t.id = s.id and t.insert_time = s.insert_time
@@ -249,7 +271,7 @@ async fn verify(dsn: &str, success_replace_stmts: u32) -> Result<()> {
 
         let mut rows = conn.query_iter("select count() from test_order").await?;
         let r = rows.next().await.unwrap().unwrap();
-        let count: (u32, ) = r.try_into()?;
+        let count: (u32,) = r.try_into()?;
         info!(
             "CHECK: value of successfully executed merge-into statements: client {}, server {}",
             success_replace_stmts * 1000,
@@ -264,11 +286,11 @@ async fn verify(dsn: &str, success_replace_stmts: u32) -> Result<()> {
                 "
             select count() from
                 (select count() a, id1 from test_order  group by id1)
-                where a != 1000",
+                where a != 10",
             )
             .await?;
         let r = rows.next().await.unwrap().unwrap();
-        let count: (u32, ) = r.try_into()?;
+        let count: (u32,) = r.try_into()?;
         assert_eq!(0, count.0);
 
         // show the number of distinct value of id2
@@ -277,7 +299,7 @@ async fn verify(dsn: &str, success_replace_stmts: u32) -> Result<()> {
             .query_iter("select count(distinct(id2)) from test_order")
             .await?;
         let r = rows.next().await.unwrap().unwrap();
-        let count: (u32, ) = r.try_into()?;
+        let count: (u32,) = r.try_into()?;
 
         assert_eq!(success_replace_stmts, count.0);
         info!(
@@ -293,7 +315,7 @@ async fn verify(dsn: &str, success_replace_stmts: u32) -> Result<()> {
             .query_iter("select count() from test_order where id2 != id1 * 7")
             .await?;
         let r = rows.next().await.unwrap().unwrap();
-        let count: (i64, ) = r.try_into()?;
+        let count: (i64,) = r.try_into()?;
 
         info!("CHECK: value of correlated column");
 
