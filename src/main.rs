@@ -183,7 +183,7 @@ async fn exec_replace(dsn: &str, batch_id: u32) -> Result<bool> {
                     insert_time2,
                     insert_time3,
                     i
-              from random_source limit 10)"
+              from random_source limit 1000)"
     );
 
     match conn.exec(&insert_sql).await {
@@ -286,7 +286,7 @@ async fn verify(dsn: &str, success_replace_stmts: u32) -> Result<()> {
                 "
             select count() from
                 (select count() a, id1 from test_order  group by id1)
-                where a != 10",
+                where a != 1000",
             )
             .await?;
         let r = rows.next().await.unwrap().unwrap();
