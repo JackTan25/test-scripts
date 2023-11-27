@@ -192,6 +192,17 @@ async fn exec_replace(dsn: &str, batch_id: u32) -> Result<bool> {
         }
     };
 
+    // insert data into test_order firstly.
+    let insert_data_sql = format!("insert into test_order select * from random_source_store");
+    match conn.exec(&insert_data_sql).await {
+        Ok(_) => {
+            info!("Ok. insert batch : {}", batch_id);
+        }
+        Err(e) => {
+            info!("Err. insert batch : {}. {e}", batch_id);
+        }
+    }
+
     //on(id, insert_time)
     let sql = format!(
         "
