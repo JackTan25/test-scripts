@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
 
     let success_replace_stmts = execute(&dsn, iterations).await?;
 
-    verify(&dsn, success_replace_stmts).await?;
+    verify(&dsn, success_replace_stmts, iterations).await?;
 
     Ok(())
 }
@@ -66,7 +66,7 @@ async fn execute(dsn: &str, iterations: u32) -> Result<u32> {
             let mut num_of_success = 0;
             for batch_id in 0..iterations {
                 info!("executing batch: {}", batch_id);
-                let success = exec_replace(&dsn, batch_id).await?;
+                let success = exec_replace(&dsn, batch_id, iterations).await?;
                 if success {
                     num_of_success += 1;
                 }
@@ -74,7 +74,7 @@ async fn execute(dsn: &str, iterations: u32) -> Result<u32> {
                 if (batch_id + 1) % 7 == 0 {
                     // introduce more conflicts if possible in on replace into stmt
                     let ids = vec![batch_id, batch_id / 2, batch_id / 3];
-                    exec_replace_conflict(&dsn, &ids).await?;
+                    exec_replace_conflict(&dsn, &ids, iterations).await?;
                 }
             }
             Ok::<_, anyhow::Error>(num_of_success)
@@ -114,7 +114,7 @@ async fn execute(dsn: &str, iterations: u32) -> Result<u32> {
     Ok(success_replace_stmts)
 }
 
-async fn exec_replace_conflict(dsn: &str, batch_ids: &[u32]) -> Result<bool> {
+async fn exec_replace_conflict(dsn: &str, batch_ids: &[u32], iterations: u32) -> Result<bool> {
     let conn = new_connection(dsn)?;
     let ids = batch_ids
         .iter()
@@ -139,7 +139,7 @@ async fn exec_replace_conflict(dsn: &str, batch_ids: &[u32]) -> Result<bool> {
         "merge into test_order as t 
                          using ({sub_query}) as s 
                          on t.id = s.id and t.insert_time = s.insert_time
-                         when matched then update *
+                         when matched then update set id2 = s.id2
                          "
     );
 
@@ -156,7 +156,7 @@ async fn exec_replace_conflict(dsn: &str, batch_ids: &[u32]) -> Result<bool> {
     }
 }
 
-async fn exec_replace(dsn: &str, batch_id: u32) -> Result<bool> {
+async fn exec_replace(dsn: &str, batch_id: u32, iterations: u32) -> Result<bool> {
     let conn = new_connection(dsn)?;
 
     info!("executing merge-into batch : {}", batch_id);
@@ -212,7 +212,7 @@ async fn exec_replace(dsn: &str, batch_id: u32) -> Result<bool> {
           ) as s
 
           on t.id = s.id and t.insert_time = s.insert_time
-          when matched then update *
+          when matched then update set id2 = {iterations} * 8 * 7,id1 = {iterations} * 8
           "
     );
     match conn.exec(&sql).await {
@@ -251,7 +251,7 @@ async fn exec_table_maintenance(dsn: &str, batch_id: i32) -> Result<()> {
     Ok(())
 }
 
-async fn verify(dsn: &str, success_replace_stmts: u32) -> Result<()> {
+async fn verify(dsn: &str, success_replace_stmts: u32, iterations: u32) -> Result<()> {
     info!("==========================");
     info!("====verify table state====");
     info!("==========================");
@@ -304,7 +304,9 @@ async fn verify(dsn: &str, success_replace_stmts: u32) -> Result<()> {
         // show the number of distinct value of id2
         // not required to be equal, since there might be communication failures
         let mut rows = conn
-            .query_iter("select count(distinct(id2)) from test_order")
+            .query_iter(&format!(
+                "select count(distinct(id2)) from test_order where id2 = {iterations} * 8 * 7",
+            ))
             .await?;
         let r = rows.next().await.unwrap().unwrap();
         let count: (u32,) = r.try_into()?;
