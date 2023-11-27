@@ -139,7 +139,7 @@ async fn exec_replace_conflict(dsn: &str, batch_ids: &[u32], iterations: u32) ->
         "merge into test_order as t 
                          using ({sub_query}) as s 
                          on t.id = s.id and t.insert_time = s.insert_time
-                         when matched then update set id2 = s.id2
+                         when matched then update set id2 = ({iterations} + s.id2) * 8 * 7,id1 = ({iterations} + s.id2) * 8
                          "
     );
 
@@ -212,7 +212,7 @@ async fn exec_replace(dsn: &str, batch_id: u32, iterations: u32) -> Result<bool>
           ) as s
 
           on t.id = s.id and t.insert_time = s.insert_time
-          when matched then update set id2 = {iterations} * 8 * 7,id1 = {iterations} * 8
+          when matched then update set id2 = ({iterations} + s.id2) * 8 * 7,id1 = ({iterations} + s.id2) * 8
           "
     );
     match conn.exec(&sql).await {
