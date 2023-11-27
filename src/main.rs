@@ -139,7 +139,6 @@ async fn exec_replace_conflict(dsn: &str, batch_ids: &[u32]) -> Result<bool> {
         "merge into test_order as t 
                          using ({sub_query}) as s 
                          on t.id = s.id and t.insert_time = s.insert_time
-                         when matched then update *
                          when not matched then insert *
                          "
     );
@@ -202,8 +201,6 @@ async fn exec_replace(dsn: &str, batch_id: u32) -> Result<bool> {
           ) as s
 
           on t.id = s.id and t.insert_time = s.insert_time
-
-          when matched then update *
           when not matched then insert *
           "
     );
